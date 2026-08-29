@@ -80,7 +80,15 @@ the AWS calculator before launch.
 
 ### 1. API — `api/EmojiWaterfall.Api`
 
-ASP.NET Core minimal API, .NET 10, published as linux-arm64.
+ASP.NET Core minimal API, .NET 10, published **self-contained** for
+`linux-arm64`.
+
+Self-contained bundles the runtime into the artifact, so the instance needs no
+.NET installed and cannot drift out of version sync with the developer's
+machine. The cost is a ~70-90 MB artifact instead of ~1 MB, which is
+irrelevant on an 8 GB disk. Workstation GC and `InvariantGlobalization` are
+set in the csproj to keep the memory and disk footprint down on a 0.5 GB
+instance.
 
 Endpoints:
 
@@ -88,13 +96,42 @@ Endpoints:
   systemd, and the nginx proxy independently of any upstream dependency.
 - `GET /api/emojis` — returns the cached emoji collection.
 
-Response shape for `/api/emojis`:
+Response shape for `/api/emojis` — a flat array, skin tone variants included
+as their own top-level entries rather than nested under a base emoji:
 
-    [ { "character": "😀", "name": "grinning face", "group": "smileys-emotion" } ]
+    [
+      { "character": "😀",  "name": "grinning face",             "group": "smileys-emotion", "subGroup": "face-smiling" },
+      { "character": "👍",  "name": "thumbs up",                  "group": "people-body",     "subGroup": "hand-single-finger" },
+      { "character": "👍🏻", "name": "thumbs up: light skin tone", "group": "people-body",     "subGroup": "hand-single-finger" }
+    ]
+
+Flat rather than nested because the frontend consumes this as a stream of
+characters to animate; nesting would force it to walk a tree to get back to a
+flat list. `group` and `subGroup` are carried through so the animation can
+optionally organise columns by category later.
+
+Expected size: roughly 3,600+ entries with skin tones included (~1,900
+without), around 250 KB of JSON, ~40 KB gzipped. Fetched once per client.
+
+**Filtering:** entries in the `component` group (subgroups `skin-tone` and
+`hair-style`) are excluded. These are bare combining modifiers — 🏻🏼🏽🏾🏿 —
+which render as isolated colour swatches rather than emoji.
 
 Upstream handling: fetch `https://emoji-api.com/emojis?access_key=...` once at
 startup via a typed `HttpClient`, project the upstream model down to the slim
 DTO above, and hold the result in memory. Refresh on a timer (24h is ample).
+
+Upstream object shape, per the published docs:
+
+    { "slug", "character", "unicodeName", "codePoint", "group", "subGroup" }
+
+**Unverified:** emoji-api.com is believed to return an additional `variants`
+array on emoji that have skin tones, but this is absent from every documented
+example and cannot be confirmed without an access key. Resolve this with one
+`curl` against the live endpoint before modelling the upstream type — if
+`variants` exists, the upstream model needs a nested type that the projection
+flattens; if it does not, skin tone variants are already top-level entries and
+the projection is a straight map.
 
 Rationale: the emoji set is effectively static, so per-request proxying would
 mean thousands of pointless round trips; caching also keeps the access key on
@@ -171,6 +208,13 @@ Single git repository, hosted on GitHub.
 
 Phases 0-1 are local only and cost nothing. No AWS resource is created
 before Phase 2.
+
+## Open verification
+
+- Confirm whether emoji-api.com returns a `variants` array for skin tones, by
+  curling the live `/emojis` endpoint with a real access key. Determines the
+  shape of the upstream model in Phase 4. Cheap to resolve; do it as soon as a
+  key exists.
 
 ## Deferred decisions
 
