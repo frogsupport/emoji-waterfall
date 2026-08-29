@@ -110,28 +110,66 @@ characters to animate; nesting would force it to walk a tree to get back to a
 flat list. `group` and `subGroup` are carried through so the animation can
 optionally organise columns by category later.
 
-Expected size: roughly 3,600+ entries with skin tones included (~1,900
-without), around 250 KB of JSON, ~40 KB gzipped. Fetched once per client.
+Verified sizes (measured against the live endpoint, 2026-08-29): 1,859
+top-level entries, 1,796 variant objects, 3,655 combined. The raw upstream
+payload is 508 KB.
 
-**Filtering:** entries in the `component` group (subgroups `skin-tone` and
-`hair-style`) are excluded. These are bare combining modifiers — 🏻🏼🏽🏾🏿 —
-which render as isolated colour swatches rather than emoji.
+**No `component` filtering is needed.** The `/categories` endpoint advertises
+a `component` group holding the bare skin-tone modifiers, but the `/emojis`
+payload contains zero entries in that group. An earlier version of this spec
+required filtering it; that requirement was wrong and has been removed.
 
 Upstream handling: fetch `https://emoji-api.com/emojis?access_key=...` once at
 startup via a typed `HttpClient`, project the upstream model down to the slim
 DTO above, and hold the result in memory. Refresh on a timer (24h is ample).
 
-Upstream object shape, per the published docs:
+### Upstream shape — VERIFIED 2026-08-29
 
-    { "slug", "character", "unicodeName", "codePoint", "group", "subGroup" }
+Confirmed by curling the live endpoint with a real access key. Three
+behaviours are undocumented and matter:
 
-**Unverified:** emoji-api.com is believed to return an additional `variants`
-array on emoji that have skin tones, but this is absent from every documented
-example and cannot be confirmed without an access key. Resolve this with one
-`curl` against the live endpoint before modelling the upstream type — if
-`variants` exists, the upstream model needs a nested type that the projection
-flattens; if it does not, skin tone variants are already top-level entries and
-the projection is a straight map.
+    {
+      "slug": "e0-6-waving-hand",
+      "character": "👋",
+      "unicodeName": "E0.6 waving hand",
+      "codePoint": "1F44B",
+      "group": "people-body",
+      "subGroup": "hand-fingers-open",
+      "variants": [
+        { "slug": "e1-0-waving-hand-light-skin-tone", "character": "👋🏻" }
+      ]
+    }
+
+**1. `variants` exists and is nested.** Present on 130 of 1,859 entries.
+
+**2. Variant objects carry only `slug` and `character`** — no `unicodeName`,
+no `codePoint`, no `group`, no `subGroup`. Flattening therefore requires a
+real projection: derive the display name from the variant slug, and inherit
+`group`/`subGroup` from the parent. It is not a straight map.
+
+**3. Every `unicodeName` and `slug` is prefixed with the emoji version** —
+`"E0.6 waving hand"`, `e0-6-waving-hand`. This affects 1,859 of 1,859
+records. The prefix must be stripped (`^E\d+(\.\d+)?\s+` on names, the
+equivalent on slugs) or every display name reads like a changelog entry.
+
+**`variants` is not limited to skin tones.** Counts per emoji:
+
+| Emoji | Variants | What they are |
+|---|---|---|
+| 👩 woman | 266 | skin tone × hair colour |
+| 👨 man | 207 | skin tone × hair colour |
+| 🧑 person | 193 | skin tone × hair colour |
+| 🧙 mage, 🏃 running, +45 others | 17 | 5 tones × (neutral, man, woman) |
+| 👋 waving hand, +71 others | 5 | the 5 Fitzpatrick tones only |
+
+Nearly half of all variants are permutations of three human figures, which
+is why the selection rule below is a deliberate decision rather than
+"include everything".
+
+**OPEN DECISION — blocks Phase 4.** Which variants the flattened response
+includes. Options under consideration: skin tones only (detected by slug
+suffix, ~2,600 entries, recommended); all 1,796 variants (3,655 entries); or
+base emoji only (1,859). Awaiting the developer's call.
 
 Rationale: the emoji set is effectively static, so per-request proxying would
 mean thousands of pointless round trips; caching also keeps the access key on
@@ -211,10 +249,9 @@ before Phase 2.
 
 ## Open verification
 
-- Confirm whether emoji-api.com returns a `variants` array for skin tones, by
-  curling the live `/emojis` endpoint with a real access key. Determines the
-  shape of the upstream model in Phase 4. Cheap to resolve; do it as soon as a
-  key exists.
+- ~~Confirm whether emoji-api.com returns a `variants` array for skin tones.~~
+  **RESOLVED 2026-08-29** — it does, nested, with only `slug` and `character`.
+  See "Upstream shape — VERIFIED" above.
 
 ## Deferred decisions
 
