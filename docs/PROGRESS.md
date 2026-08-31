@@ -1,6 +1,6 @@
 # Where we are
 
-Last updated: 2026-08-29
+Last updated: 2026-08-30
 
 ## Read these first
 
@@ -32,21 +32,34 @@ each step is doing and why — explanation is a deliverable, not a bonus.
   (`E0.6 waving hand`) and needs stripping; there is no `component` group to
   filter despite what the docs imply.
 
+- **Task 1 complete.** `api/` holds `EmojiWaterfall.slnx` (the new .NET 10 XML
+  solution format) and `EmojiWaterfall.Api` with `GET /api/health` →
+  `{"status":"ok"}`, port pinned to 5000, `ServerGarbageCollection` false and
+  `InvariantGlobalization` true.
+- **Task 2 complete, but restructured from the plan.** The single
+  `EmojiWaterfall.Api.Tests` project was split in two:
+  `EmojiWaterfall.Api.UnitTests` (empty until Phase 4) and
+  `EmojiWaterfall.Api.IntegrationTests`. The folder layout takes its cue from
+  github.com/alex289/CleanArchitecture's `CleanArchitecture.IntegrationTests`
+  (`Infrastructure/` for the host factory, `Endpoints/` for the tests) but not
+  its layering: that repo's `TestFixtureBase`/fixture-per-feature/JSON-extension
+  scaffolding, its Testcontainers + Respawn setup, and its NUnit runner all
+  exist for a database and an auth system this project does not have. Two files
+  total — a `WebApplicationFactory<Program>` subclass pinning the `Testing`
+  environment, and the test itself using xUnit's `IClassFixture<T>` so the
+  factory is shared per class and actually disposed. Add layers back when a
+  second test needs to share something.
+- **Task 3 partly done** — the Vite scaffold exists in `web/`; the dev proxy
+  and `App.tsx` fetch are still to write.
+
 ## Next action
 
-**Task 1 of the plan** — API scaffold and health endpoint. Nothing in `api/`
-has been created yet beyond `.gitignore`. Start with:
+**Task 3, steps 3–6** — the Vite dev proxy and the health fetch in `App.tsx`.
+Then Task 4 (ARM64 publish dry run), which closes Phase 1. Note Task 4 Step 5
+matters: the root `.gitignore` has no `publish/` rule yet.
 
-```bash
-cd api
-dotnet new sln -n EmojiWaterfall
-dotnet new web -n EmojiWaterfall.Api
-dotnet sln add EmojiWaterfall.Api/EmojiWaterfall.Api.csproj
-```
-
-Then the developer writes: two csproj properties
-(`ServerGarbageCollection` false, `InvariantGlobalization` true) and
-`GET /api/health` returning `{"status":"ok"}`.
+The plan file still describes Task 2 as one test project. It has been
+superseded by the split above; the plan has not been rewritten.
 
 ## Open question — blocks Phase 4, not Phase 1
 

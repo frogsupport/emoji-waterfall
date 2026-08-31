@@ -1,3 +1,5 @@
 <Solution>
+  <Project Path="EmojiWaterfall.Api.IntegrationTests/EmojiWaterfall.Api.IntegrationTests.csproj" />
+  <Project Path="EmojiWaterfall.Api.UnitTests/EmojiWaterfall.Api.UnitTests.csproj" />
   <Project Path="EmojiWaterfall.Api/EmojiWaterfall.Api.csproj" />
 </Solution>
