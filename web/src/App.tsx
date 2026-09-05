@@ -1,21 +1,34 @@
 import { useCallback, useEffect, useState } from "react";
 import "./App.css";
 
-type HealthResponse = { status: string };
+// type HealthResponse = { status: string };
+
+// function isHealthResonse(value: unknown): value is HealthResponse {
+//   if (
+//     typeof value === "object" &&
+//     value !== null &&
+//     "status" in value &&
+//     typeof value.status === "string"
+//   ) {
+//     return true;
+//   } else {
+//     return false;
+//   }
+// }
 
 function App() {
-  const [data, setData] = useState<HealthResponse | undefined>(undefined);
+  const [data, setData] = useState<{ character: string }[] | undefined>(
+    undefined,
+  );
 
   const loadData = useCallback(async () => {
-    const response = await fetch("/api/health");
+    const response = await fetch("/api/emojis");
 
     if (!response.ok) {
       throw new Error("Lame");
     }
 
-    const data = (await response.json()) as HealthResponse;
-
-    console.log({ data });
+    const data = await response.json();
 
     setData(data);
   }, []);
@@ -36,7 +49,7 @@ function App() {
         </fieldset>
       </header>
       <article>
-        Wussup <div>{data?.status}</div>
+        <div>{data?.map((emoji) => emoji.character)}</div>
       </article>
     </div>
   );
