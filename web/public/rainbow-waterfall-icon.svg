@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Rainbow waterfall">
+  <defs>
+    <!-- Rounded crest where the water pours over the ledge -->
+    <clipPath id="fall">
+      <path d="M14,26 Q64,12 114,26 L114,112 L14,112 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- Rainbow water (each band flares slightly as it falls) -->
+  <g clip-path="url(#fall)">
+    <path d="M26,16 L37.46,16 L30.31,100 L16,100 Z" fill="#FF4D4D"/>
+    <path d="M36.86,16 L48.31,16 L44.03,100 L29.71,100 Z" fill="#FF9A3C"/>
+    <path d="M47.71,16 L59.17,16 L57.74,100 L43.43,100 Z" fill="#FFD93D"/>
+    <path d="M58.57,16 L70.03,16 L71.46,100 L57.14,100 Z" fill="#4CD964"/>
+    <path d="M69.43,16 L80.89,16 L85.17,100 L70.86,100 Z" fill="#3BA7FF"/>
+    <path d="M80.29,16 L91.74,16 L98.89,100 L84.57,100 Z" fill="#5B6CFF"/>
+    <path d="M91.14,16 L102,16 L112,100 L98.29,100 Z" fill="#B36BFF"/>
+  </g>
+
+  <!-- Crest highlight and falling streaks -->
+  <path d="M30,23 Q64,15 98,23" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" opacity="0.85"/>
+  <g fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity="0.4">
+    <path d="M41,32 L35,58"/>
+    <path d="M67,30 L67,50"/>
+    <path d="M88,34 L94,62"/>
+    <path d="M53,64 L50,84"/>
+    <path d="M80,70 L85,88"/>
+  </g>
+
+  <!-- Pool -->
+  <ellipse cx="64" cy="106" rx="60" ry="11" fill="#8FD3FF"/>
+  <ellipse cx="64" cy="108" rx="44" ry="6" fill="#BDE6FF"/>
+
+  <!-- Foam / splash -->
+  <g fill="#fff" stroke="#D6ECFF" stroke-width="1.5">
+    <circle cx="15" cy="102" r="5"/>
+    <circle cx="113" cy="102" r="5"/>
+    <circle cx="26" cy="99" r="7"/>
+    <circle cx="102" cy="99" r="7"/>
+    <circle cx="40" cy="101" r="8"/>
+    <circle cx="88" cy="101" r="8"/>
+    <circle cx="52" cy="100" r="8"/>
+    <circle cx="76" cy="100" r="8"/>
+    <circle cx="64" cy="100" r="9"/>
+  </g>
+</svg>

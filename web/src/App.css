@@ -61,11 +61,7 @@ body {
   font-family: "Montserrat", sans-serif;
   background-color: var(--ld-background);
   color: var(--ld-text);
-}
-.wrapper {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 1rem;
+  margin: 0;
 }
 .nav {
   margin: 24px 0;
@@ -98,6 +94,49 @@ a:hover {
   color: var(--ld-link-hover);
 }
 
+header {
+  margin: 12px;
+  display: flex;
+  justify-content: end;
+}
+
+.color-mode-icon {
+  background: transparent;
+  color: var(--ld-text);
+  border: none;
+  padding-inline: 0;
+  padding-block: 0;
+  z-index: 5;
+}
+
+@keyframes scrollEmojis {
+  from {
+    transform: translateY(-50%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.emoji-columns {
+  animation-name: scrollEmojis;
+  animation-duration: 50s;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.emoji-column {
+  font-size: 18rem;
+}
+
+.wrapper {
+  overflow: hidden;
+  height: 100dvh;
+  /* display: grid; */
+  /* margin: 0 auto; */
+  text-align: center;
+}
+
 /* light dark radio toggle */
 /* credit https://codepen.io/scottohara/pen/zLZwNv */
 @layer switch {
@@ -108,6 +147,7 @@ a:hover {
     display: flex;
     justify-content: center;
     margin-bottom: 2rem;
+    display: none;
   }
   .radio-switch legend {
     font-size: 2px;
@@ -173,5 +213,14 @@ a:hover {
   }
   .radio-switch input:last-of-type:checked ~ label:last-of-type {
     z-index: 1;
+  }
+}
+
+@media (min-width: 700px) {
+  .radio-switch {
+    display: inline-block;
+  }
+  .color-mode-icon {
+    display: none;
   }
 }

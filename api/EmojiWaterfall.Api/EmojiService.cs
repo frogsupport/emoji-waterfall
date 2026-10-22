@@ -1,6 +1,7 @@
 namespace EmojiWaterfall.Api;
 
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Caching.Hybrid;
 
 public record Emoji
 {
@@ -18,7 +19,15 @@ public class EmojiService
 
     private readonly string _emojiApiAccessKey;
 
-    public EmojiService(IConfiguration configuration, HttpClient httpClient)
+    private readonly HybridCache _hybridCache;
+
+    private const string emojiCacheKey = "emoji-api:all-emojis";
+
+    public EmojiService(
+        IConfiguration configuration,
+        HttpClient httpClient,
+        HybridCache hybridCache
+    )
     {
         _httpClient = httpClient;
 
@@ -26,20 +35,42 @@ public class EmojiService
 
         var emojiApiAccessKey = configuration["EmojiApi:AccessKey"];
 
-        if (emojiApiAccessKey.IsWhiteSpace() || emojiApiAccessKey == null)
+        if (emojiApiAccessKey == null || emojiApiAccessKey.IsWhiteSpace())
         {
             throw new Exception("No key boi");
         }
 
         _emojiApiAccessKey = emojiApiAccessKey;
+
+        _hybridCache = hybridCache;
     }
 
-    public async Task<IReadOnlyList<Emoji>?> GetEmojisAsync(CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<Emoji>?> GetEmojisAsync(
+        int count,
+        CancellationToken cancellationToken
+    )
     {
-        var uri = QueryHelpers.AddQueryString("emojis", "access_key", _emojiApiAccessKey);
+        var cachedEmojis = await _hybridCache.GetOrCreateAsync(
+            emojiCacheKey,
+            async cacheEntry =>
+            {
+                var uri = QueryHelpers.AddQueryString("emojis", "access_key", _emojiApiAccessKey);
 
-        var emojis = await _httpClient.GetFromJsonAsync<List<Emoji>>(uri, cancellationToken);
+                var emojis = await _httpClient.GetFromJsonAsync<List<Emoji>>(
+                    uri,
+                    cancellationToken
+                );
 
-        return emojis;
+                return emojis;
+            },
+            new HybridCacheEntryOptions()
+            {
+                Expiration = TimeSpan.FromHours(24),
+                LocalCacheExpiration = TimeSpan.FromHours(24),
+            },
+            cancellationToken: cancellationToken
+        );
+
+        return cachedEmojis?.Shuffle().Take(count).ToList();
     }
 }
