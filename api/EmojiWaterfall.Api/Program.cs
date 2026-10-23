@@ -3,14 +3,13 @@ using EmojiWaterfall.Api;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHybridCache();
 builder.Services.AddHttpClient<EmojiService>();
+builder.Services.AddHostedService<StartupFetchService>();
 
 var app = builder.Build();
 
 app.MapGet("/", () => "This is emoji waterfall api boi");
 
 app.MapGet("/api/health", () => new { status = "ok" });
-
-// TODO: Add an IHostedService that fetches the emojis on startup
 
 // /api/emojis?count={count}
 app.MapGet(

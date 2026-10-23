@@ -45,20 +45,17 @@ public class EmojiService
         _hybridCache = hybridCache;
     }
 
-    public async Task<IReadOnlyList<Emoji>?> GetEmojisAsync(
-        int count,
-        CancellationToken cancellationToken
-    )
+    private async Task<List<Emoji>?> GetAllEmojisAsync(CancellationToken cancellationToken)
     {
         var cachedEmojis = await _hybridCache.GetOrCreateAsync(
             emojiCacheKey,
-            async cacheEntry =>
+            async factoryCancellationToken =>
             {
                 var uri = QueryHelpers.AddQueryString("emojis", "access_key", _emojiApiAccessKey);
 
                 var emojis = await _httpClient.GetFromJsonAsync<List<Emoji>>(
                     uri,
-                    cancellationToken
+                    factoryCancellationToken
                 );
 
                 return emojis;
@@ -71,6 +68,21 @@ public class EmojiService
             cancellationToken: cancellationToken
         );
 
-        return cachedEmojis?.Shuffle().Take(count).ToList();
+        return cachedEmojis;
+    }
+
+    public async Task PrimeCacheAsync(CancellationToken cancellationToken)
+    {
+        await GetAllEmojisAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Emoji>?> GetEmojisAsync(
+        int count,
+        CancellationToken cancellationToken
+    )
+    {
+        var emojis = await GetAllEmojisAsync(cancellationToken);
+
+        return emojis?.Shuffle().Take(count).ToList();
     }
 }
