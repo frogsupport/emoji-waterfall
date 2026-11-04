@@ -1,84 +1,91 @@
 # Where we are
 
-Last updated: 2026-08-30
-
-## Read these first
-
-- Spec: `docs/superpowers/specs/2026-08-29-emoji-waterfall-design.md`
-- Plan (Phases 1–3): `docs/superpowers/plans/2026-08-29-thin-slice-to-production.md`
+Last updated: 2026-11-04
 
 ## Working agreement
 
-**The developer writes all production code.** Claude supplies commands,
-contracts, and explanations, and asks before writing any file in `api/`,
-`web/`, or `deploy/`. Docs in `docs/` are Claude's to write. Walk through what
-each step is doing and why — explanation is a deliverable, not a bonus.
+**The developer writes all production code and runs the deploys.** Claude
+inspects, explains, and links to documentation, and does not edit `api/`, `web/`,
+or deployment files, or rebuild containers, unless asked. Docs in `docs/` are
+Claude's to write. Explanation is a deliverable, not a bonus: the developer is
+here to learn how every moving part works.
+
+## The plan changed
+
+The app now deploys to a **DigitalOcean droplet with Docker Swarm**, not to AWS.
+`README.md` holds the current requirements.
+
+The AWS spec and plan below are **out of date for infrastructure, deployment, and
+domain**. Ignore their EC2, systemd, SSM, certbot, and `emoji-waterfall.lol`
+sections. Their app design notes (such as the verified emoji-api.com response
+shape) are still useful.
+
+- `docs/superpowers/specs/2026-08-29-emoji-waterfall-design.md`
+- `docs/superpowers/plans/2026-08-29-thin-slice-to-production.md`
+
+## Decisions
+
+| Area | Decision |
+|---|---|
+| Host | DigitalOcean droplet, single node; size to be set by measurement |
+| Orchestration | Docker Swarm |
+| Replicas | 2 frontend, 2 backend |
+| Crash recovery | Swarm `deploy.restart_policy` |
+| Registry | GitHub Container Registry (`ghcr.io/frogsupport/`), public images |
+| Images | Built and pushed by a GitHub Actions workflow on version tags, pulled by the droplet |
+| Routing | nginx in the frontend image proxies `/api/` to `backend:8080` |
+| HTTPS | Caddy as a single edge proxy, with a volume for `/data` |
+| Domain | emojiwaterfall.com |
+
+Swarm gives `backend` one stable virtual IP, so the nginx config does not need a
+`resolver` workaround for restarted containers. Two replicas on one droplet
+protect against a crashed container, not against losing the droplet.
 
 ## Done
 
-- **Phase 0 complete.** Repo initialized, pushed to
-  `github.com/frogsupport/emoji-waterfall` (public, default branch `master`).
-  Nested `.gitignore` strategy: root file for OS/editor/secrets, `api/.gitignore`
-  from `dotnet new gitignore`, `web/.gitignore` to come from the Vite scaffold.
-- Spec written and approved. Decisions locked: single EC2 `t4g.nano` (ARM64,
-  Amazon Linux 2023, us-east-1) running nginx + Kestrel; nginx serves the React
-  build and reverse-proxies `/api`; CSS keyframe animation for v1; emoji-api.com
-  as the upstream; DNS at Namecheap, no Route53; ~$7.40/month accepted with an
-  AWS Budget alert at $10.
-- Plan written for Phases 1–3, ending with the thin slice live on HTTPS.
-- **Upstream API verified against the live endpoint.** Findings are in the
-  spec under "Upstream shape — VERIFIED": `variants` is nested and carries only
-  `slug` + `character`; every `unicodeName`/`slug` is version-prefixed
-  (`E0.6 waving hand`) and needs stripping; there is no `component` group to
-  filter despite what the docs imply.
-
-- **Task 1 complete.** `api/` holds `EmojiWaterfall.slnx` (the new .NET 10 XML
-  solution format) and `EmojiWaterfall.Api` with `GET /api/health` →
-  `{"status":"ok"}`, port pinned to 5000, `ServerGarbageCollection` false and
-  `InvariantGlobalization` true.
-- **Task 2 complete, but restructured from the plan.** The single
-  `EmojiWaterfall.Api.Tests` project was split in two:
-  `EmojiWaterfall.Api.UnitTests` (empty until Phase 4) and
-  `EmojiWaterfall.Api.IntegrationTests`. The folder layout takes its cue from
-  github.com/alex289/CleanArchitecture's `CleanArchitecture.IntegrationTests`
-  (`Infrastructure/` for the host factory, `Endpoints/` for the tests) but not
-  its layering: that repo's `TestFixtureBase`/fixture-per-feature/JSON-extension
-  scaffolding, its Testcontainers + Respawn setup, and its NUnit runner all
-  exist for a database and an auth system this project does not have. Two files
-  total — a `WebApplicationFactory<Program>` subclass pinning the `Testing`
-  environment, and the test itself using xUnit's `IClassFixture<T>` so the
-  factory is shared per class and actually disposed. Add layers back when a
-  second test needs to share something.
-- **Task 3 partly done** — the Vite scaffold exists in `web/`; the dev proxy
-  and `App.tsx` fetch are still to write.
+- ASP.NET API with `GET /api/health` and `GET /api/emojis?count=N`, using
+  HybridCache and priming the cache at startup.
+- React app fetching and displaying emojis.
+- Dockerfiles for `api/` and `web/`, `web/nginx.conf`, and a local `compose.yml`
+  using `api.env` (gitignored). The proxy target is fixed in `nginx.conf`.
+- emoji-api.com access key rotated.
 
 ## Next action
 
-**Task 3, steps 3–6** — the Vite dev proxy and the health fetch in `App.tsx`.
-Then Task 4 (ARM64 publish dry run), which closes Phase 1. Note Task 4 Step 5
-matters: the root `.gitignore` has no `publish/` rule yet.
+**Step 1: commit the Docker work.** The Dockerfiles, `.dockerignore` files,
+`compose.yml`, `web/nginx.conf`, and `README.md` are untracked, and the
+`.gitignore` and `Program.cs` changes are uncommitted.
 
-The plan file still describes Task 2 as one test project. It has been
-superseded by the split above; the plan has not been rewritten.
+## Deployment steps
 
-## Open question — blocks Phase 4, not Phase 1
+Open to change.
 
-Which variants belong in the flattened `/api/emojis`. Was asked, not yet
-answered:
+1. Commit the Docker work.
+2. Add the GitHub Actions workflow, push a version tag, and confirm both images
+   are public on GHCR.
+3. Write a Swarm stack file and get 2 + 2 replicas running locally. Kill a
+   container and watch Swarm replace it.
+4. Measure memory and CPU with resource limits on, under load, then pick a
+   droplet size.
+5. Set up the droplet: Docker, Swarm, a DigitalOcean Cloud Firewall (22, 80, 443
+   only), log rotation, and the API key. Deploy and test by IP address.
+6. Add DNS for emojiwaterfall.com, then Caddy for HTTPS.
+7. Write down the repeatable deploy steps, then rerun the crash and load tests in
+   production.
 
-| Option | Entries | Note |
-|---|---|---|
-| Skin tones only (recommended) | ~2,600 | detect by slug suffix; drops hair-colour and gendered permutations |
-| All variants | 3,655 | 👩 alone contributes 266 near-identical entries |
-| Base emoji only | 1,859 | reverses the earlier "add all skin tone variants" call |
+## Open questions
 
-Phases 1–3 do not depend on this. Plan 2 (Phases 4–5) cannot be written until
-it is answered.
+- How should the API key reach the container: a Docker secret (needs ASP.NET's
+  key-per-file provider) or an environment variable?
+- Does a droplet already exist, and is it running anything?
+- Which emoji variants should `/api/emojis` return? Not a deployment blocker.
 
-## Housekeeping
+## Known issues
 
-- The emoji-api.com access key was pasted into a chat transcript. Free tier, low
-  stakes, but worth rotating. It belongs in `dotnet user-secrets` locally and
-  SSM Parameter Store on EC2 — never in the repo.
-- Nothing billable has been created in AWS yet. Phase 2 Task 5 (the budget)
-  comes before any resource that costs money.
+None of these block deployment.
+
+- `/api/health` returns OK even when the API key is missing, so a broken deploy
+  looks healthy. Worth deciding before adding a health check.
+- `/api/emojis` has no tests; only the health endpoint does.
+- In `web/src/App.tsx`, the `try/catch` does not await `loadData()`, so a failed
+  fetch is not caught and the page likely stays in its loading state.

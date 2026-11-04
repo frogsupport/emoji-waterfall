@@ -1,0 +1,14 @@
+services:
+  frontend:
+    build: ./web
+    depends_on:
+      - backend
+    ports:
+      - "8081:80"
+
+  backend:
+    build: ./api
+    env_file:
+      - "api.env"
+    ports:
+      - "8080:8080"
