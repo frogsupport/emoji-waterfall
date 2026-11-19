@@ -24,8 +24,7 @@ public sealed class StartupValidationTests
 
         // Catch the host that the entry point builds on its own thread, so the
         // test can stop it if startup wrongly succeeds (app.Run() never returns).
-        using var subscription = DiagnosticListener.AllListeners.Subscribe(
-            new HostObserver(
+        using var observer = new HostObserver(
                 () => entryThreadId,
                 h =>
                 {
@@ -33,8 +32,8 @@ public sealed class StartupValidationTests
                     h.Services.GetRequiredService<IHostApplicationLifetime>()
                         .ApplicationStarted.Register(started.Set);
                 }
-            )
-        );
+            );
+        using var subscription = DiagnosticListener.AllListeners.Subscribe(observer);
 
         var run = Task.Run(() =>
         {
@@ -75,15 +74,37 @@ public sealed class StartupValidationTests
     }
 
     private sealed class HostObserver(Func<int> entryThreadId, Action<IHost> onHostBuilt)
-        : IObserver<DiagnosticListener>
+        : IObserver<DiagnosticListener>,
+            IDisposable
     {
+        private readonly List<IDisposable> _subscriptions = [];
+        private bool _disposed;
+
+        // Dispose the inner subscriptions too. They stay on the process-wide
+        // listener otherwise, and would fire for hosts built by later tests.
+        public void Dispose()
+        {
+            lock (_subscriptions)
+            {
+                _disposed = true;
+                _subscriptions.ForEach(s => s.Dispose());
+                _subscriptions.Clear();
+            }
+        }
+
         public void OnNext(DiagnosticListener listener)
         {
             if (listener.Name == "Microsoft.Extensions.Hosting")
             {
-                listener.Subscribe(
-                    new EventObserver(entryThreadId, onHostBuilt)
-                );
+                lock (_subscriptions)
+                {
+                    if (!_disposed)
+                    {
+                        _subscriptions.Add(
+                            listener.Subscribe(new EventObserver(entryThreadId, onHostBuilt))
+                        );
+                    }
+                }
             }
         }
 
