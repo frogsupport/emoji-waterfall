@@ -69,6 +69,10 @@ The first `ssh` asks you to trust the droplet's host key. Answer `yes`.
 A Docker context sends `docker` commands to another machine over SSH. Add
 `--context emoji-droplet` to any command, or set `DOCKER_CONTEXT=emoji-droplet`.
 
+In Git Bash, put the remote command of `ssh` in quotes when it has an argument
+that starts with `/`. Without quotes, Git Bash changes that argument into a
+Windows path and the command fails.
+
 ### SSH key with a passphrase (Windows)
 
 Git Bash ships its own `ssh`, which cannot reach the Windows `ssh-agent`. Then
@@ -143,9 +147,9 @@ HTTPS certificate.
 
    Both must show `<IP>`. If not, wait a few minutes and try again.
 
-**Do not deploy until both names show `<IP>`.** Caddy asks Let's Encrypt for
-a certificate when it starts with a domain. If DNS is wrong, the check fails.
-Let's Encrypt limits failed requests, so do not redeploy in a loop.
+   **Do not deploy until both names show `<IP>`.** Caddy asks Let's Encrypt
+   for a certificate when it starts with a domain. If DNS is wrong, the check
+   fails. Let's Encrypt limits failed requests, so do not redeploy in a loop.
 
 5. Deploy with the real domain:
 
@@ -199,22 +203,29 @@ the server itself.
    ssh ops@<IP> 'sudo ls -l /home/deploy/.ssh/authorized_keys'
    ```
 
-   Expected: `-rw------- 1 deploy deploy`. If the owner or mode is wrong, run
-   `sudo chown deploy:deploy` and `sudo chmod 600` on the file.
-
-3. Capture the droplet's host key. The workflow will trust only this key, so
-   it never connects to an unknown host. Save the output in a file:
+   Expected: `-rw------- 1 deploy deploy`. If the owner or mode is wrong, fix
+   it:
 
    ```bash
-   ssh-keyscan -t ed25519 <IP> > known_hosts.txt
-   ssh-keygen -lf known_hosts.txt
+   ssh ops@<IP> 'sudo chown deploy:deploy /home/deploy/.ssh/authorized_keys && sudo chmod 600 /home/deploy/.ssh/authorized_keys'
+   ```
+
+3. Capture the droplet's host key. The workflow will trust only this key, so
+   it never connects to an unknown host. Save the output in a file. These
+   commands use Git's own tools by full path, because the Windows
+   `ssh-keyscan` (first in `PATH` after the passphrase fix above) fails with
+   `unsupported KEX method`:
+
+   ```bash
+   /usr/bin/ssh-keyscan -t ed25519 <IP> > known_hosts.txt
+   /usr/bin/ssh-keygen -lf known_hosts.txt
    ```
 
 4. Compare the fingerprint with the one on the droplet. Ask the droplet
    itself, over your trusted `ops` login:
 
    ```bash
-   ssh ops@<IP> ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+   ssh ops@<IP> 'ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub'
    ```
 
    The two `SHA256:...` values must be identical. If they differ, stop. Do
@@ -229,7 +240,8 @@ the server itself.
    | `DEPLOY_SSH_KEY` | The whole private key file `emoji-deploy`, including the `BEGIN` and `END` lines |
    | `DEPLOY_KNOWN_HOSTS` | The one line from `known_hosts.txt` |
 
-   With the CLI:
+   With the CLI. Run these inside the repo folder. Outside it, add
+   `-R <owner>/<repo>` to each command.
 
    ```bash
    gh secret set DEPLOY_SSH_KEY < emoji-deploy
@@ -237,7 +249,17 @@ the server itself.
    printf '%s' '<IP>' | gh secret set DEPLOY_HOST
    ```
 
-6. Delete the local key files. GitHub now holds the private key, and you do
+6. Optional check: log in with only the new key. This proves that the key
+   works and that `deploy` has no `sudo`. The options stop `ssh` from using
+   other keys or the agent, and make it trust only `known_hosts.txt`.
+
+   ```bash
+   /usr/bin/ssh -i emoji-deploy -o IdentitiesOnly=yes -o IdentityAgent=none -o UserKnownHostsFile=known_hosts.txt deploy@<IP> 'whoami; docker service ls'
+   ```
+
+   Expected: `deploy`, then the three services.
+
+7. Delete the local key files. GitHub now holds the private key, and you do
    not need another copy.
 
    ```bash
@@ -289,6 +311,10 @@ install nothing. It sends 20 virtual users to `GET /api/emojis?count=50` for
 60 seconds. The API serves from a cache, so the test does not call
 emoji-api.com on each request.
 
+The script has no pause between requests. Each virtual user sends the next
+request as soon as the last one ends. This is a continuous flood, and it is
+harder than 20 real users.
+
 ```bash
 docker run --rm -i -e BASE_URL=https://emojiwaterfall.com grafana/k6:2.4.0 run - < deploy/load-test.js
 ```
@@ -303,19 +329,35 @@ docker --context emoji-droplet stats --no-stream
 ssh ops@<IP> free -m
 ```
 
+`stats --no-stream` is one snapshot. Run both commands several times during
+the test, for example three times, about 15 seconds apart. This way you do
+not miss the peak.
+
 At the end, k6 marks each threshold with a check mark (pass) or a cross (fail).
 Read these lines:
 
 - `http_req_failed`: the share of failed requests. It must stay under 1%.
 - `http_req_duration`: look at `p(95)`. 95% of requests were faster than this
   value. It must stay under 500 ms.
-- `checks`: the status is 200 and the body is a list of 50 emojis.
+- `checks`: the status is 200 and the body is a list of 50 emojis. More than
+  99% of checks must pass. A failed check alone does not fail a k6 run, so
+  this threshold makes it count.
 
 The test passes when:
 
-- both thresholds pass,
+- all three thresholds pass,
 - every container stays under its memory limit, and
 - `free -m` shows more than 100 MB in the `available` column.
+
+Measured on 2026-11-19, on the 1 GB droplet:
+
+- 5,836 requests in 60 seconds (98 per second), 0 failed.
+- `p(95)` 393 ms, average 199 ms.
+- Peak memory: backend 47 MiB of 256, caddy 20 MiB of 128, frontend 7 MiB
+  of 64.
+- Lowest available memory: 381 MB. Load average: up to 4.95 on one CPU.
+
+The single CPU is the limit, not memory.
 
 If it does not pass, write down the numbers. Then resize the droplet to
 2 GB in DigitalOcean and run the test again.
