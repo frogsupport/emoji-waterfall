@@ -94,7 +94,12 @@ a:hover {
   color: var(--ld-link-hover);
 }
 
+/* The header floats at the top right, above the falling emojis. */
 header {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 10;
   margin: 12px;
   display: flex;
   justify-content: end;
@@ -119,17 +124,39 @@ header {
 }
 
 .emoji-columns {
+  display: flex;
+  justify-content: space-evenly;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.emoji-column {
+  width: calc(var(--emoji-size) * 1.3);
+  overflow: hidden;
+}
+
+/* Only the moving strip animates. Duration and delay come from inline styles. */
+.emoji-strip {
+  font-size: var(--emoji-size);
+  line-height: 1.3;
   animation-name: scrollEmojis;
-  animation-duration: 50s;
   animation-timing-function: linear;
   animation-iteration-count: infinite;
 }
 
-.emoji-column {
-  font-size: 18rem;
+.emoji-strip > div {
+  height: 1.3em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emoji-strip {
+    animation: none;
+  }
 }
 
 .wrapper {
+  /* Same rule as getEmojiSize in getNumEmojiCols.ts. Keep them equal. */
+  --emoji-size: clamp(110px, 14vw, 200px);
   overflow: hidden;
   height: 100dvh;
   /* display: grid; */

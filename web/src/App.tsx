@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import "./App.css";
+import { getEmojiLayout } from "./getNumEmojiCols";
 
 type Emoji = { character: string };
 
@@ -26,9 +27,65 @@ function isEmojiResonse(value: unknown): value is Emoji[] {
   }
 }
 
+const BASE_SPEED = 90; // CSS pixels per second
+
+const fraction = (value: number) => value - Math.floor(value);
+
+// Speed and start point come from the column index, not from Math.random().
+// Random values would change on every render. Multiplying by an irrational
+// number and keeping the fraction gives values that are stable and well spread.
+const getColumnMotion = (index: number) => ({
+  speedFactor: 0.7 + 0.6 * fraction((index + 1) * 0.6180339887),
+  startFraction: fraction((index + 1) * 0.7548776662),
+});
+
+type EmojiColumnProps = {
+  emojis: Emoji[];
+  index: number;
+  rows: number;
+  cellSize: number;
+};
+
+function EmojiColumn({ emojis, index, rows, cellSize }: EmojiColumnProps) {
+  // Wrap with modulo so a short list still fills every column.
+  const column = Array.from(
+    { length: rows },
+    (_, row) => emojis[(index * rows + row) % emojis.length].character,
+  );
+
+  const { speedFactor, startFraction } = getColumnMotion(index);
+  const duration = (rows * cellSize) / (BASE_SPEED * speedFactor);
+
+  return (
+    <div className="emoji-column">
+      {/* The list is drawn twice. The strip moves by half its height (one
+          full list), so the second copy lands exactly where the first began. */}
+      <div
+        className="emoji-strip"
+        style={{
+          animationDuration: `${duration}s`,
+          animationDelay: `${-startFraction * duration}s`,
+        }}
+      >
+        {column.map((character, row) => (
+          <div key={row}>{character}</div>
+        ))}
+        {column.map((character, row) => (
+          <div key={row + rows}>{character}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [emojis, setEmojis] = useState<Emoji[] | undefined>(undefined);
   const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<boolean>(false);
+  const [viewport, setViewport] = useState({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
   const [colorMode, setColorMode] = useState<"dark" | "light">(
     window.matchMedia("(prefers-color-scheme: dark)").matches
       ? "dark"
@@ -44,7 +101,7 @@ function App() {
 
     const loadData = async () => {
       setLoading(true);
-      const response = await fetch("/api/emojis?count=50", {
+      const response = await fetch("/api/emojis?count=200", {
         signal: controller.signal,
       });
 
@@ -62,14 +119,30 @@ function App() {
       setLoading(false);
     };
 
-    try {
-      loadData();
-    } catch (err) {
+    loadData().catch((err: unknown) => {
+      // The cleanup aborts the request on purpose, so this is not a failure.
+      if (controller.signal.aborted) {
+        return;
+      }
       console.error(err);
-    }
+      setError(true);
+    });
 
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    const onResize = () =>
+      setViewport({ width: window.innerWidth, height: window.innerHeight });
+
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const { emojiSize, numColumns, rowsPerColumn } = getEmojiLayout(
+    viewport.width,
+    viewport.height,
+  );
 
   return (
     <div className="wrapper">
@@ -115,17 +188,21 @@ function App() {
           <label htmlFor="dark">Dark</label>
         </fieldset>
       </header>
-      {loading ? <div>Loading...</div> : null}
-      {!loading ? (
+      {error ? (
+        <div>Could not load emojis. Reload the page to try again.</div>
+      ) : null}
+      {loading && !error ? <div>Loading...</div> : null}
+      {!loading && emojis && emojis.length > 0 ? (
         <article className="emoji-columns">
-          <div className="emoji-column">
-            {emojis?.map((emoji) => (
-              <div key={emoji.character}>{emoji.character}</div>
-            ))}
-            {emojis?.map((emoji) => (
-              <div key={emoji.character + 2}>{emoji.character}</div>
-            ))}
-          </div>
+          {Array.from({ length: numColumns }, (_, index) => (
+            <EmojiColumn
+              key={index}
+              emojis={emojis}
+              index={index}
+              rows={rowsPerColumn}
+              cellSize={emojiSize * 1.3}
+            />
+          ))}
         </article>
       ) : null}
     </div>
