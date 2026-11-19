@@ -259,3 +259,63 @@ Check which version runs now with:
 ```bash
 docker --context emoji-droplet service ls --format '{{.Name}} {{.Image}}'
 ```
+
+## Check health and logs
+
+Run these from your laptop. Each one asks the droplet over the Docker context.
+
+```bash
+docker --context emoji-droplet service ls
+docker --context emoji-droplet service ps emoji_backend
+docker --context emoji-droplet service logs -f emoji_backend
+docker --context emoji-droplet stats --no-stream
+```
+
+- `service ls` shows each service and its replicas. A healthy stack shows
+  `emoji_caddy` 1/1, `emoji_frontend` 2/2, and `emoji_backend` 2/2.
+- `service ps <service>` shows the tasks of one service. Healthy tasks have the
+  state `Running`. A task with `Rejected` or `Failed` did not start or crashed.
+  Read its error text in the `ERROR` column. Add `--no-trunc` to see all of it.
+- `service logs -f emoji_backend` follows the backend log. Press Ctrl+C to stop.
+  Use it to see why a task failed.
+- `stats --no-stream` prints memory and CPU once for each container on the
+  droplet. Compare memory use with the limit in the same row. The droplet has
+  only 1 GB, so memory is the first thing to run out.
+
+## Load test
+
+The load test uses [k6](https://k6.io), run in a Docker container, so you
+install nothing. It sends 20 virtual users to `GET /api/emojis?count=50` for
+60 seconds. The API serves from a cache, so the test does not call
+emoji-api.com on each request.
+
+```bash
+docker run --rm -i -e BASE_URL=https://emojiwaterfall.com grafana/k6:2.4.0 run - < deploy/load-test.js
+```
+
+The script is sent on standard input (`run -` and `<`). This avoids path
+problems in Git Bash on Windows.
+
+While the test runs, open a second Git Bash window and watch memory:
+
+```bash
+docker --context emoji-droplet stats --no-stream
+ssh ops@<IP> free -m
+```
+
+At the end, k6 marks each threshold with a check mark (pass) or a cross (fail).
+Read these lines:
+
+- `http_req_failed`: the share of failed requests. It must stay under 1%.
+- `http_req_duration`: look at `p(95)`. 95% of requests were faster than this
+  value. It must stay under 500 ms.
+- `checks`: the status is 200 and the body is a list of 50 emojis.
+
+The test passes when:
+
+- both thresholds pass,
+- every container stays under its memory limit, and
+- `free -m` shows more than 100 MB in the `available` column.
+
+If it does not pass, write down the numbers. Then resize the droplet to
+2 GB in DigitalOcean and run the test again.
