@@ -69,6 +69,23 @@ The first `ssh` asks you to trust the droplet's host key. Answer `yes`.
 A Docker context sends `docker` commands to another machine over SSH. Add
 `--context emoji-droplet` to any command, or set `DOCKER_CONTEXT=emoji-droplet`.
 
+### SSH key with a passphrase (Windows)
+
+Git Bash ships its own `ssh`, which cannot reach the Windows `ssh-agent`. Then
+`docker --context emoji-droplet` asks for the passphrase or fails. Fix this once:
+
+1. Open PowerShell **as administrator** and start the agent service:
+   `Get-Service ssh-agent | Set-Service -StartupType Automatic; Start-Service ssh-agent`
+2. In a normal PowerShell window, run `ssh-add` and enter the passphrase.
+3. Add this line to `~/.bashrc`, so Git Bash uses the Windows OpenSSH client,
+   which can reach the agent:
+
+   ```bash
+   export PATH="/c/Windows/System32/OpenSSH:$PATH"
+   ```
+
+Open a new Git Bash window after you change `~/.bashrc`.
+
 ## Create the API key secret
 
 Do this once per droplet. Use `printf`, not `echo`, so no newline is added.
@@ -99,3 +116,47 @@ DOCKER_CONTEXT=emoji-droplet bash deploy/deploy.sh <tag> <domain>
 
 The command waits until Swarm finishes. It exits with an error if Swarm
 rolled back any service.
+
+## DNS at Namecheap
+
+Point the domain at the droplet. Caddy needs this before it can get an
+HTTPS certificate.
+
+1. In Namecheap, open **Domain List > Manage** for `emojiwaterfall.com`, then
+   **Advanced DNS**.
+2. Delete the parking records: the `www` CNAME that points to the parking
+   page, and any URL redirect record.
+3. Add two records. Use your droplet address for `<IP>`.
+
+   | Type | Host | Value | TTL |
+   |---|---|---|---|
+   | A Record | `@` | `<IP>` | Automatic |
+   | A Record | `www` | `<IP>` | Automatic |
+
+4. Check that DNS answers with the droplet address. Use the resolver
+   `1.1.1.1`, not your local one, which may cache old answers:
+
+   ```bash
+   nslookup emojiwaterfall.com 1.1.1.1
+   nslookup www.emojiwaterfall.com 1.1.1.1
+   ```
+
+   Both must show `<IP>`. If not, wait a few minutes and try again.
+
+**Do not deploy until both names show `<IP>`.** Caddy asks Let's Encrypt for
+a certificate when it starts with a domain. If DNS is wrong, the check fails.
+Let's Encrypt limits failed requests, so do not redeploy in a loop.
+
+5. Deploy with the real domain:
+
+   ```bash
+   DOCKER_CONTEXT=emoji-droplet bash deploy/deploy.sh 0.1.0 emojiwaterfall.com
+   ```
+
+6. Check HTTPS. Caddy may need a short time to get the certificate.
+
+   | Command | Expected result |
+   |---|---|
+   | `curl -sI https://emojiwaterfall.com` | `HTTP/2 200` |
+   | `curl -sI https://www.emojiwaterfall.com` | `301`, with `location: https://emojiwaterfall.com/` |
+   | `curl -sI http://emojiwaterfall.com` | a redirect to `https://` |
