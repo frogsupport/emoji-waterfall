@@ -15,10 +15,10 @@ public sealed class StartupValidationTests
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
-    public void Should_Fail_Startup_Without_Access_Key(string accessKey)
+    public async Task Should_Fail_Startup_Without_Access_Key(string accessKey)
     {
         var entryPoint = typeof(Program).Assembly.EntryPoint!;
-        using var started = new ManualResetEventSlim();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         IHost? host = null;
         var entryThreadId = 0;
 
@@ -30,7 +30,7 @@ public sealed class StartupValidationTests
                 {
                     host = h;
                     h.Services.GetRequiredService<IHostApplicationLifetime>()
-                        .ApplicationStarted.Register(started.Set);
+                        .ApplicationStarted.Register(() => started.TrySetResult());
                 }
             );
         using var subscription = DiagnosticListener.AllListeners.Subscribe(observer);
@@ -52,21 +52,23 @@ public sealed class StartupValidationTests
         });
 
         // Wait for the entry point to throw, or for the app to report that it started.
-        var finished =
-            WaitHandle.WaitAny(
-                [((IAsyncResult)run).AsyncWaitHandle, started.WaitHandle],
-                TimeSpan.FromSeconds(30)
-            ) == 0;
+        var first = await Task.WhenAny(run, started.Task, Task.Delay(TimeSpan.FromSeconds(30)));
 
-        if (!finished)
+        if (first != run)
         {
-            // Startup wrongly succeeded. Stop the host, then fail the test.
+            // Startup did not fail. Stop the host if there is one, then fail the test.
             host?.Services.GetRequiredService<IHostApplicationLifetime>().StopApplication();
-            run.Wait(TimeSpan.FromSeconds(10));
-            Assert.Fail("The app started without an access key. Startup must fail.");
+            await Task.WhenAny(run, Task.Delay(TimeSpan.FromSeconds(10)));
+
+            if (first == started.Task)
+            {
+                Assert.Fail("The app started without an access key. Startup must fail.");
+            }
+
+            Assert.Fail("The entry point did not fail or start within 30 seconds.");
         }
 
-        var ex = Record.Exception(() => run.GetAwaiter().GetResult());
+        var ex = await Record.ExceptionAsync(() => run);
 
         var targetInvocation = Assert.IsType<TargetInvocationException>(ex);
         var validation = Assert.IsType<OptionsValidationException>(targetInvocation.InnerException);
