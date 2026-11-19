@@ -13,4 +13,6 @@ RUN dotnet publish -c release -o /api --no-restore src/EmojiWaterfall.Api/EmojiW
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /api
 COPY --from=build /api /api
+# Run as the non-root user that the .NET base image provides.
+USER $APP_UID
 ENTRYPOINT [ "dotnet", "EmojiWaterfall.Api.dll" ]

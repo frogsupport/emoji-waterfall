@@ -2,6 +2,7 @@ namespace EmojiWaterfall.Api;
 
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.Extensions.Options;
 
 public record Emoji
 {
@@ -24,7 +25,7 @@ public class EmojiService
     private const string emojiCacheKey = "emoji-api:all-emojis";
 
     public EmojiService(
-        IConfiguration configuration,
+        IOptions<EmojiApiOptions> options,
         HttpClient httpClient,
         HybridCache hybridCache
     )
@@ -33,14 +34,8 @@ public class EmojiService
 
         _httpClient.BaseAddress = new Uri("https://emoji-api.com/");
 
-        var emojiApiAccessKey = configuration["EmojiApi:AccessKey"];
-
-        if (emojiApiAccessKey == null || emojiApiAccessKey.IsWhiteSpace())
-        {
-            throw new Exception("No key boi");
-        }
-
-        _emojiApiAccessKey = emojiApiAccessKey;
+        // Startup validation guarantees the key is present.
+        _emojiApiAccessKey = options.Value.AccessKey;
 
         _hybridCache = hybridCache;
     }
