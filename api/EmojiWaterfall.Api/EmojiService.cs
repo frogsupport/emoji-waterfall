@@ -78,6 +78,13 @@ public class EmojiService
     {
         var emojis = await GetAllEmojisAsync(cancellationToken);
 
-        return emojis?.Shuffle().Take(count).ToList();
+        return emojis?.Shuffle().Take(ClampCount(count)).ToList();
     }
+
+    // One request may return at most this many emojis.
+    // This protects the small server from very large responses.
+    public const int MaxCount = 500;
+
+    // Turns a requested count into the count we return: never below 0, never above MaxCount.
+    public static int ClampCount(int requested) => Math.Clamp(requested, 0, MaxCount);
 }

@@ -24,6 +24,7 @@ var app = builder.Build();
 app.MapGet("/api/health", () => new { status = "ok" });
 
 // /api/emojis?count=<count>
+// count is limited to EmojiService.MaxCount (500); a larger count returns 500 emojis.
 app.MapGet(
     "/api/emojis",
     async (EmojiService emojiService, int count, CancellationToken cancellationToken) =>
