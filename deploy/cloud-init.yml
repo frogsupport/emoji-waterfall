@@ -1,0 +1,70 @@
+#cloud-config
+# DigitalOcean runs this once, when it creates the droplet. Paste the whole
+# file into "Advanced options > Add initialization scripts (user data)".
+# Progress log on the droplet: /var/log/cloud-init-output.log
+
+package_update: true
+package_upgrade: true
+
+# Create the docker group first, so the users below can join it before
+# Docker is installed.
+groups:
+  - docker
+
+users:
+  - default
+  # ops: your login. Full sudo, and the SSH key from your DigitalOcean
+  # account (copied from root in runcmd below).
+  - name: ops
+    shell: /bin/bash
+    groups: [docker]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+  # deploy: GitHub Actions only. Docker access, no sudo. Its key is added
+  # by hand later (deploy/README.md, "Set up automatic deploys").
+  - name: deploy
+    shell: /bin/bash
+    groups: [docker]
+    lock_passwd: true
+
+# 1 GB of swap, so a memory spike slows the droplet instead of killing a process.
+swap:
+  filename: /swapfile
+  size: 1G
+  maxsize: 1G
+
+write_files:
+  # Docker log rotation: at most 3 files of 10 MB per container.
+  - path: /etc/docker/daemon.json
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": { "max-size": "10m", "max-file": "3" }
+      }
+  # SSH: keys only, no root login. Files in sshd_config.d are read in
+  # name order and the first value wins, so 10- beats 50-cloud-init.
+  - path: /etc/ssh/sshd_config.d/10-hardening.conf
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+
+runcmd:
+  # Give ops the account SSH key that DigitalOcean put on root.
+  - install -d -m 700 -o ops -g ops /home/ops/.ssh
+  - install -m 600 -o ops -g ops /root/.ssh/authorized_keys /home/ops/.ssh/authorized_keys
+  # An empty key file for deploy, ready for the GitHub key.
+  - install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
+  - install -m 600 -o deploy -g deploy /dev/null /home/deploy/.ssh/authorized_keys
+
+  # Docker Engine from Docker's apt repository (docs.docker.com/engine/install/ubuntu).
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  - chmod a+r /etc/apt/keyrings/docker.asc
+  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
+  - apt-get update
+  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+  - systemctl restart ssh
+
+  # A droplet has more than one IP address, so tell Swarm which one to use.
+  - docker swarm init --advertise-addr "$(curl -s http://169.254.169.254/metadata/v1/interfaces/public/0/ipv4/address)"
