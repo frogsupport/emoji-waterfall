@@ -160,3 +160,102 @@ Let's Encrypt limits failed requests, so do not redeploy in a loop.
    | `curl -sI https://emojiwaterfall.com` | `HTTP/2 200` |
    | `curl -sI https://www.emojiwaterfall.com` | `301`, with `location: https://emojiwaterfall.com/` |
    | `curl -sI http://emojiwaterfall.com` | a redirect to `https://` |
+
+## Set up automatic deploys
+
+When you push a tag that starts with `v`, GitHub Actions runs `test`, then
+`publish`, then `deploy`. The `deploy` job runs `deploy/deploy.sh` against the
+droplet. If the new tasks fail, Swarm rolls back by itself, the script exits
+with an error, and the job fails. Do these steps once.
+
+GitHub needs its own way in. Use a separate deploy-only key, not your own
+key. If it leaks, you delete one line on the droplet and nothing else is
+affected. The key logs in as the `deploy` user. That user is in the `docker`
+group but has no `sudo`, so it can run `docker` commands and cannot change
+the server itself.
+
+1. Create the key pair on your laptop. `-N ""` means no passphrase, because
+   a workflow cannot type one.
+
+   ```bash
+   ssh-keygen -t ed25519 -N "" -f emoji-deploy -C github-deploy
+   ```
+
+   This makes `emoji-deploy` (private) and `emoji-deploy.pub` (public). Never
+   commit them.
+
+2. Add the public key to the `deploy` user on the droplet. The user `ops`
+   does not own `/home/deploy/.ssh/authorized_keys`, so `ops` writes to it
+   with `sudo tee -a`. The `-a` adds a line and keeps the old ones.
+
+   ```bash
+   ssh ops@<IP> 'sudo tee -a /home/deploy/.ssh/authorized_keys' < emoji-deploy.pub
+   ```
+
+   The file must stay owned by `deploy` with mode 600, or `sshd` ignores it.
+   Check it:
+
+   ```bash
+   ssh ops@<IP> 'sudo ls -l /home/deploy/.ssh/authorized_keys'
+   ```
+
+   Expected: `-rw------- 1 deploy deploy`. If the owner or mode is wrong, run
+   `sudo chown deploy:deploy` and `sudo chmod 600` on the file.
+
+3. Capture the droplet's host key. The workflow will trust only this key, so
+   it never connects to an unknown host. Save the output in a file:
+
+   ```bash
+   ssh-keyscan -t ed25519 <IP> > known_hosts.txt
+   ssh-keygen -lf known_hosts.txt
+   ```
+
+4. Compare the fingerprint with the one on the droplet. Ask the droplet
+   itself, over your trusted `ops` login:
+
+   ```bash
+   ssh ops@<IP> ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+   ```
+
+   The two `SHA256:...` values must be identical. If they differ, stop. Do
+   not continue until you know why.
+
+5. Add three repository secrets in GitHub, under **Settings > Secrets and
+   variables > Actions > New repository secret**. Or use `gh secret set NAME < file`.
+
+   | Secret | Value |
+   |---|---|
+   | `DEPLOY_HOST` | The droplet IP address, `<IP>` |
+   | `DEPLOY_SSH_KEY` | The whole private key file `emoji-deploy`, including the `BEGIN` and `END` lines |
+   | `DEPLOY_KNOWN_HOSTS` | The one line from `known_hosts.txt` |
+
+   With the CLI:
+
+   ```bash
+   gh secret set DEPLOY_SSH_KEY < emoji-deploy
+   gh secret set DEPLOY_KNOWN_HOSTS < known_hosts.txt
+   printf '%s' '<IP>' | gh secret set DEPLOY_HOST
+   ```
+
+6. Delete the local key files. GitHub now holds the private key, and you do
+   not need another copy.
+
+   ```bash
+   rm emoji-deploy emoji-deploy.pub known_hosts.txt
+   ```
+
+## Roll back by hand
+
+Swarm rolls back by itself when a new version fails to start. To go back to
+an older version that started fine, deploy its tag again from your laptop:
+
+```bash
+DOCKER_CONTEXT=emoji-droplet bash deploy/deploy.sh <previous tag> emojiwaterfall.com
+```
+
+`<previous tag>` is an image version without the `v`, for example `0.1.0`.
+Check which version runs now with:
+
+```bash
+docker --context emoji-droplet service ls --format '{{.Name}} {{.Image}}'
+```
