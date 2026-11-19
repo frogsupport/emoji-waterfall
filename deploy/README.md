@@ -172,11 +172,25 @@ When you push a tag that starts with `v`, GitHub Actions runs `test`, then
 droplet. If the new tasks fail, Swarm rolls back by itself, the script exits
 with an error, and the job fails. Do these steps once.
 
+A tag must have the form `vX.Y.Z`, for example `v0.1.1`. The image tag and the
+deploy both take the version from it.
+
+To repeat a deploy, re-run **only the `deploy` job**, or use **Re-run failed
+jobs**. Do not use **Re-run all jobs**. That rebuilds the images under the
+same tag. The rebuilt images get a new digest, and Swarm then replaces the
+running containers.
+
 GitHub needs its own way in. Use a separate deploy-only key, not your own
-key. If it leaks, you delete one line on the droplet and nothing else is
-affected. The key logs in as the `deploy` user. That user is in the `docker`
-group but has no `sudo`, so it can run `docker` commands and cannot change
-the server itself.
+key. The key logs in as the `deploy` user. That user has no `sudo`, but it is
+in the `docker` group. A member of that group can start a container that
+mounts the host's file system. So the key gives full control of the droplet
+through Docker.
+
+A separate key is still worth it. Only GitHub uses it, it is not your personal
+key, and you can revoke it fast: delete its line in
+`/home/deploy/.ssh/authorized_keys`. If it leaks, revoke it at once and treat
+the droplet as compromised. Rebuild it from `cloud-init.yml` and rotate the
+API key. Keep the key only as a GitHub repository secret. Never commit it.
 
 1. Create the key pair on your laptop. `-N ""` means no passphrase, because
    a workflow cannot type one.
@@ -316,8 +330,12 @@ request as soon as the last one ends. This is a continuous flood, and it is
 harder than 20 real users.
 
 ```bash
-docker run --rm -i -e BASE_URL=https://emojiwaterfall.com grafana/k6:2.4.0 run - < deploy/load-test.js
+docker --context default run --rm -i -e BASE_URL=https://emojiwaterfall.com grafana/k6:2.4.0 run - < deploy/load-test.js
 ```
+
+Run this command on your laptop. `--context default` makes sure of that. If
+`DOCKER_CONTEXT=emoji-droplet` is set in your shell, the load generator would
+otherwise run on the droplet and distort the result.
 
 The script is sent on standard input (`run -` and `<`). This avoids path
 problems in Git Bash on Windows.
