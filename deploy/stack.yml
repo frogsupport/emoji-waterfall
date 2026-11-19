@@ -1,0 +1,104 @@
+# The emoji stack for Docker Swarm. Deploy it with deploy.sh, which sets TAG,
+# DOMAIN, WWW_DOMAIN, and CADDYFILE_HASH.
+#
+#   browser -> caddy (HTTPS) -> frontend (nginx) -> /api/ -> backend (ASP.NET)
+
+# Shared settings. The x- prefix tells Swarm to ignore these keys; the
+# & anchors let each service reuse them with <<: *name.
+x-restart: &restart
+  condition: on-failure
+  delay: 5s
+
+x-rolling-update: &rolling-update
+  parallelism: 1
+  order: start-first # start the new task before stopping the old one
+  failure_action: rollback
+  monitor: 30s # a task that crashes within 30s counts as a failed update
+
+services:
+  caddy:
+    image: caddy:2.11.9
+    ports:
+      # mode: host binds the droplet's ports directly, so Caddy sees real
+      # client IP addresses. Swarm's default (ingress) would hide them.
+      - { target: 80, published: 80, protocol: tcp, mode: host }
+      - { target: 443, published: 443, protocol: tcp, mode: host }
+      - { target: 443, published: 443, protocol: udp, mode: host } # HTTP/3
+    environment:
+      DOMAIN: ${DOMAIN}
+      WWW_DOMAIN: ${WWW_DOMAIN}
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - caddy_data:/data # certificates; keep them between deploys
+      - caddy_config:/config
+    networks: [app]
+    deploy:
+      replicas: 1
+      restart_policy: *restart
+      update_config:
+        <<: *rolling-update
+        # Two Caddy tasks cannot bind the same host ports at once.
+        order: stop-first
+      rollback_config:
+        parallelism: 1
+        order: stop-first
+      resources:
+        limits:
+          memory: 128M
+
+  frontend:
+    image: ghcr.io/frogsupport/emoji-web:${TAG}
+    networks: [app]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    deploy:
+      replicas: 2
+      restart_policy: *restart
+      update_config: *rolling-update
+      rollback_config:
+        parallelism: 1
+      resources:
+        limits:
+          memory: 64M
+
+  backend:
+    image: ghcr.io/frogsupport/emoji-api:${TAG}
+    networks: [app]
+    secrets:
+      # Mounted as the file /run/secrets/EmojiApi__AccessKey, which the API
+      # reads as the setting EmojiApi:AccessKey.
+      - source: emoji_api_access_key
+        target: EmojiApi__AccessKey
+    deploy:
+      replicas: 2
+      restart_policy: *restart
+      update_config: *rolling-update
+      rollback_config:
+        parallelism: 1
+      resources:
+        limits:
+          memory: 256M
+
+networks:
+  app:
+    driver: overlay
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+configs:
+  caddyfile:
+    # Swarm configs cannot change. A new hash gives a changed Caddyfile a new name.
+    name: caddyfile-${CADDYFILE_HASH}
+    file: ./Caddyfile
+
+secrets:
+  emoji_api_access_key:
+    external: true # created once by hand; see deploy/README.md
