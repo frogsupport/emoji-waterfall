@@ -53,7 +53,7 @@ public class EmojiService
                     factoryCancellationToken
                 );
 
-                return emojis;
+                return emojis?.Where(e => !EmojiFilter.IsUnsupportedFlag(e.Character)).ToList();
             },
             new HybridCacheEntryOptions()
             {
